@@ -404,6 +404,17 @@ export const versionedPages = {
     ControlsButton: {
       '12.3.0': 'data-testid dashboard controls button',
     },
+    LoadPathInspector: {
+      chip: {
+        '13.3.0': 'data-testid dashboard load path inspector chip',
+      },
+      panel: {
+        '13.3.0': 'data-testid dashboard load path inspector panel',
+      },
+      hop: {
+        '13.3.0': 'data-testid dashboard load path inspector hop',
+      },
+    },
     SubMenu: {
       submenu: {
         '13.1.0': 'data-testid Dashboard submenu',

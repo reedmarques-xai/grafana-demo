@@ -13,6 +13,7 @@ import { SoloPanelContextProvider, useDefineSoloPanelContext } from '../solo/Sol
 
 import { type DashboardScene } from './DashboardScene';
 import { PanelSearchLayout } from './PanelSearchLayout';
+import { DashboardLoadPathInspector } from './load-path-inspector/DashboardLoadPathInspector';
 
 export function DashboardSceneRenderer({ model }: SceneComponentProps<DashboardScene>) {
   const {
@@ -116,6 +117,7 @@ export function DashboardSceneRenderer({ model }: SceneComponentProps<DashboardS
             body={renderBody()}
           />
         )}
+        {!editPanel && !viewPanel && !panelSearch && <DashboardLoadPathInspector dashboard={model} />}
         {overlay && <overlay.Component model={overlay} />}
       </Page>
     </>
