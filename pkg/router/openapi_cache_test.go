@@ -179,3 +179,108 @@ func TestOpenAPIGroupVersionIfNoneMatch304SetsETag(t *testing.T) {
 		t.Errorf("304 response ETag = %q, want %q (RFC 7232 requires it on 304)", got, etag)
 	}
 }
+
+func TestStripHashQueryParam(t *testing.T) {
+	cases := []struct {
+		name             string
+		rawQuery         string
+		wantHasHash      bool
+		wantOther        map[string]string
+		wantRawUnchanged bool
+	}{
+		{
+			name:        "hash only",
+			rawQuery:    "hash=our-rv-token",
+			wantHasHash: false,
+		},
+		{
+			name:        "empty hash value",
+			rawQuery:    "hash=",
+			wantHasHash: false,
+		},
+		{
+			name:        "hash among other params",
+			rawQuery:    "pretty=true&hash=rv5&timeout=10s",
+			wantHasHash: false,
+			wantOther:   map[string]string{"pretty": "true", "timeout": "10s"},
+		},
+		{
+			name:             "no hash leaves RawQuery untouched",
+			rawQuery:         "pretty=true&timeout=10s",
+			wantHasHash:      false,
+			wantOther:        map[string]string{"pretty": "true", "timeout": "10s"},
+			wantRawUnchanged: true,
+		},
+		{
+			name:             "empty query is a no-op",
+			rawQuery:         "",
+			wantHasHash:      false,
+			wantRawUnchanged: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/openapi/v3/apis/dashboard.grafana.app/v1alpha1", nil)
+			req.URL.RawQuery = tc.rawQuery
+
+			stripHashQueryParam(req)
+
+			if got := req.URL.Query().Has("hash"); got != tc.wantHasHash {
+				t.Errorf("Query().Has(%q) = %v, want %v (RawQuery=%q)", "hash", got, tc.wantHasHash, req.URL.RawQuery)
+			}
+			if tc.wantRawUnchanged && req.URL.RawQuery != tc.rawQuery {
+				t.Errorf("RawQuery mutated: got %q, want unchanged %q", req.URL.RawQuery, tc.rawQuery)
+			}
+			for k, want := range tc.wantOther {
+				if got := req.URL.Query().Get(k); got != want {
+					t.Errorf("Query().Get(%q) = %q, want %q", k, got, want)
+				}
+			}
+		})
+	}
+}
+
+// hashRedirectingUpstream mimics kube-openapi handler3: a client-supplied
+// "hash" is treated as a claim about the backend's own content hash, and a
+// mismatch 301-redirects to the "correct" one. The router must strip our
+// RV-based hash before proxying, or rejectBackendRedirects turns that 301
+// into a 502 on every cold-cache OpenAPI request.
+type hashRedirectingUpstream struct {
+	body    string
+	sawHash atomic.Bool
+}
+
+func (u *hashRedirectingUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Has("hash") {
+		u.sawHash.Store(true)
+		http.Redirect(w, r, r.URL.Path+"?hash=backend-content-hash", http.StatusMovedPermanently)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(u.body))
+}
+
+func TestOpenAPIGroupVersionStripsHashQueryParam(t *testing.T) {
+	upstream := &hashRedirectingUpstream{body: `{"openapi":"3.0.0"}`}
+	s := buildRouterWithBackend("dashboard.grafana.app", "5", upstream)
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) })
+	h := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { s.HandleFunc(w, req, next) })
+
+	// Discovery advertises serverRelativeURL with ?hash=<our RV>. That token
+	// is ours, not the backend's content hash — forwarding it is the bug.
+	req := httptest.NewRequest(http.MethodGet, "/openapi/v3/apis/dashboard.grafana.app/v1alpha1?hash=5&pretty=true", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got code %d, want 200 (upstream must not see hash and 301)", rec.Code)
+	}
+	if rec.Body.String() != upstream.body {
+		t.Errorf("got body %q, want %q", rec.Body.String(), upstream.body)
+	}
+	if upstream.sawHash.Load() {
+		t.Error("upstream saw a hash query param; stripHashQueryParam must remove it before proxying")
+	}
+}

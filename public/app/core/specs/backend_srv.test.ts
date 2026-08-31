@@ -146,6 +146,55 @@ describe('backendSrv', () => {
     );
   });
 
+  describe('X-Grafana-Device-Id', () => {
+    it('attaches the device id on relative local URLs only', () => {
+      const srv = new BackendSrv({
+        contextSrv: {
+          user: {
+            orgId: 1,
+          },
+        },
+      } as BackendSrvDependencies);
+      srv['deviceID'] = 'device-abc';
+
+      const local = srv['parseRequestOptions']({ url: '/api/dashboard/', retry: 0 });
+      expect(local.headers?.['X-Grafana-Device-Id']).toBe('device-abc');
+    });
+
+    it('does not attach the device id on absolute http(s) URLs', () => {
+      const srv = new BackendSrv({
+        contextSrv: {
+          user: {
+            orgId: 1,
+          },
+        },
+      } as BackendSrvDependencies);
+      srv['deviceID'] = 'device-abc';
+
+      const remote = srv['parseRequestOptions']({
+        url: 'https://external.example/query',
+        retry: 0,
+        headers: { Accept: 'application/json' },
+      });
+      expect(remote.headers?.['X-Grafana-Device-Id']).toBeUndefined();
+      expect(remote.headers?.Accept).toBe('application/json');
+    });
+
+    it('does not attach the header when the device id is unset', () => {
+      const srv = new BackendSrv({
+        contextSrv: {
+          user: {
+            orgId: 1,
+          },
+        },
+      } as BackendSrvDependencies);
+      srv['deviceID'] = null;
+
+      const local = srv['parseRequestOptions']({ url: '/api/dashboard/', retry: 0 });
+      expect(local.headers?.['X-Grafana-Device-Id']).toBeUndefined();
+    });
+  });
+
   describe('request', () => {
     const testMessage = 'Datasource updated';
     const errorMessage = 'UnAuthorized';
