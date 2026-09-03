@@ -1,4 +1,4 @@
-import { extractErrorMessage } from './utils';
+import { extractErrorMessage, extractStatusCauses } from './utils';
 
 describe('extractErrorMessage', () => {
   it('returns data.message properly', () => {
@@ -41,5 +41,50 @@ describe('extractErrorMessage', () => {
     expect(extractErrorMessage({}, 'fallback message')).toBe('fallback message');
     expect(extractErrorMessage(false, 'fallback message')).toBe('fallback message');
     expect(extractErrorMessage(undefined, 'fallback message')).toBe('fallback message');
+  });
+});
+
+describe('extractStatusCauses', () => {
+  it('returns field causes from a Kubernetes Status Failure', () => {
+    const causes = extractStatusCauses({
+      kind: 'Status',
+      status: 'Failure',
+      details: {
+        causes: [
+          { field: 'spec.github.url', message: 'invalid URL', reason: 'FieldValueInvalid' },
+          { field: 'spec.path', message: 'required', reason: 'FieldValueRequired' },
+        ],
+      },
+    });
+
+    expect(causes).toEqual([
+      { field: 'spec.github.url', message: 'invalid URL', reason: 'FieldValueInvalid' },
+      { field: 'spec.path', message: 'required', reason: 'FieldValueRequired' },
+    ]);
+  });
+
+  it('returns an empty array when the Status Failure has no causes', () => {
+    expect(extractStatusCauses({ kind: 'Status', status: 'Failure' })).toEqual([]);
+    expect(extractStatusCauses({ kind: 'Status', status: 'Failure', details: {} })).toEqual([]);
+  });
+
+  it('returns an empty array for non-failure payloads', () => {
+    expect(extractStatusCauses(null)).toEqual([]);
+    expect(extractStatusCauses({ kind: 'Status', status: 'Success' })).toEqual([]);
+    expect(extractStatusCauses({ errors: [{ field: 'url', detail: 'bad' }] })).toEqual([]);
+  });
+
+  it('returns an empty array when a listed cause is missing field, message, or reason', () => {
+    // isStatusFailure rejects the whole payload if any cause is incomplete, so
+    // callers must not treat a partial causes list as field-level errors.
+    expect(
+      extractStatusCauses({
+        kind: 'Status',
+        status: 'Failure',
+        details: {
+          causes: [{ field: 'spec.url', message: 'invalid URL' }],
+        },
+      })
+    ).toEqual([]);
   });
 });
