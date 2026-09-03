@@ -88,6 +88,25 @@ describe('MultiCombobox', () => {
     expect(input).toHaveAttribute('placeholder', '');
   });
 
+  it('selects the first option on Enter without ArrowDown', async () => {
+    const options = [
+      { label: 'A', value: 'a' },
+      { label: 'B', value: 'b' },
+      { label: 'C', value: 'c' },
+    ];
+    const onChange = jest.fn();
+
+    render(<MultiCombobox options={options} value={[]} onChange={onChange} />);
+    const input = screen.getByRole('combobox');
+    await user.click(input);
+    expect(await screen.findByRole('option', { name: 'A' })).toBeInTheDocument();
+
+    await user.keyboard('{Enter}');
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith([{ label: 'A', value: 'a' }]);
+  });
+
   it.each([
     ['a', 'b', 'c'],
     [1, 2, 3],
